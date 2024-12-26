@@ -13,4 +13,3 @@ printStack stack = Right (trace (show stack) stack)
 -- Добавление значения в стек через ввод (эмуляция)
 inputValue :: Int -> Command
 inputValue x = push x
-
