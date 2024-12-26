@@ -115,17 +115,17 @@ rot _ = Left "Error: Not enough elements on stack for ROT"
 
 -- Больше
 gt :: Command
-gt (x:y:xs) = Right ((if y > x then 1 else 0) : xs)
+gt (x:y:xs) = Right ((if y > x then -1 else 0) : xs)
 gt _ = Left "Error: Not enough elements on stack for comparison (>)"
 
 -- Меньше
 lt :: Command
-lt (x:y:xs) = Right ((if y < x then 1 else 0) : xs)
+lt (x:y:xs) = Right ((if y < x then -1 else 0) : xs)
 lt _ = Left "Error: Not enough elements on stack for comparison (<)"
 
 -- Равно
 eq :: Command
-eq (x:y:xs) = Right ((if y == x then 1 else 0) : xs)
+eq (x:y:xs) = Right ((if y == x then -1 else 0) : xs)
 eq _ = Left "Error: Not enough elements on stack for comparison (==)"
 
 -- Логическое И (AND)
