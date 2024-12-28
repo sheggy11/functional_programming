@@ -31,8 +31,7 @@ module Colon.Core (
 import System.IO (hFlush, stdout)
 import Control.Monad.IO.Class (liftIO)
 import System.IO.Unsafe (unsafePerformIO)  
-import Control.Exception (SomeException, catch)  исключений
-
+import Control.Exception (SomeException, catch)  
 
 type Stack = [Int]
 type ColonResult = Either String Stack
