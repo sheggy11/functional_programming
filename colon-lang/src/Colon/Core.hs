@@ -30,15 +30,15 @@ module Colon.Core (
 
 import System.IO (hFlush, stdout)
 import Control.Monad.IO.Class (liftIO)
-import System.IO.Unsafe (unsafePerformIO)  -- Добавьте этот импорт
-import Control.Exception (SomeException, catch)  -- Добавьте этот импорт для обработки исключений
+import System.IO.Unsafe (unsafePerformIO)  
+import Control.Exception (SomeException, catch)  исключений
 
 
 type Stack = [Int]
 type ColonResult = Either String Stack
 type Command = Stack -> ColonResult
 
--- Вспомогательная функция для выполнения IO в контексте Either String
+-- Функция для выполнения IO в контексте Either String
 liftIOtoEither :: IO a -> Either String a
 liftIOtoEither action = unsafePerformIO (fmap Right action `catch` handler)
   where
@@ -144,7 +144,6 @@ invert (x:xs) = Right ((if x == 0 then -1 else 0) : xs) -- -1 represents True, 0
 invert _ = Left "Error: Stack underflow for INVERT"
 
 
--- Поглощение вершины стека и вывод её
 -- Поглощение вершины стека и вывод её
 dot :: Command
 dot (x:xs) = do

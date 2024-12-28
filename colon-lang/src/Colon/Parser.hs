@@ -28,7 +28,7 @@ parseCommand word dict
 -- Парсинг строки для вывода
 parseStringLiteral :: String -> Command
 parseStringLiteral str stack = do
-    let cleanedStr = takeWhile (/= '"') str  -- Ожидаем, что строка заканчивается кавычкой
+    let cleanedStr = takeWhile (/= '"') str  -- Ждем, что строка заканчивается кавычкой
     liftIOtoEither (putStr cleanedStr)  -- Выводим строку
     return stack
 
