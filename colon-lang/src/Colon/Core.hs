@@ -28,7 +28,10 @@ module Colon.Core (
     printStringLiteral,
     sToF,
     fToS,
-    Value(..)
+    Value(..),
+    create,       
+    cells,       
+    allot        
 ) where
 
 import System.IO (hFlush, stdout)
@@ -36,9 +39,9 @@ import Control.Monad.IO.Class (liftIO)
 import System.IO.Unsafe (unsafePerformIO)  
 import Control.Exception (SomeException, catch)  
 
--- Определяем новый тип Value для поддержки Int и Float
-data Value = I Int | F Float
-    deriving (Show, Eq, Read)  -- Добавлен Read
+-- тип Value для поддержки Int и Float
+data Value = I Int | F Float | Array [Value]  
+    deriving (Show, Eq, Read)
 
 instance Num Value where
     (I x) + (I y) = I (x + y)
@@ -73,18 +76,17 @@ type Stack = [Value]
 type ColonResult = Either String Stack
 type Command = Stack -> ColonResult
 
---------------------------------------------------------------------------------
+
 -- Функция для выполнения IO в контексте Either String
---------------------------------------------------------------------------------
 liftIOtoEither :: IO a -> Either String a
 liftIOtoEither action = unsafePerformIO (fmap Right action `catch` handler)
   where
     handler :: SomeException -> IO (Either String a)
     handler _ = return (Left "Error in IO action")
 
---------------------------------------------------------------------------------
+
 -- Операции над стеком
---------------------------------------------------------------------------------
+
 push :: Value -> Command
 push x stack = Right (x : stack)
 
@@ -97,9 +99,8 @@ printStringLiteral str stack = do
     liftIOtoEither (putStrLn str)
     return stack
 
---------------------------------------------------------------------------------
+
 -- Арифметические операции (работают с I и F)
---------------------------------------------------------------------------------
 add, sub, mul, div' :: Command
 add (x:y:xs) = Right (op (+) x y : xs)
 add _ = Left "Error: Not enough elements on stack for addition"
@@ -121,9 +122,54 @@ mod' (I x:I y:xs)
     | otherwise = Right (I (y `mod` x) : xs)
 mod' _ = Left "Error: MOD only works with integers"
 
---------------------------------------------------------------------------------
+
+
+-- CREATE создает новую переменную/массив
+create :: String -> Int -> Command
+create name size stack = Right (Array (replicate size (I 0)) : stack)
+
+sizeOfCell :: Int
+sizeOfCell = 4  
+
+-- CELLS 
+cells :: Command
+cells (I n : xs) = Right (I (n * sizeOfCell) : xs)  
+cells _ = Left "Error: Not enough elements on stack for CELLS"
+
+-- ALLOT выделяет память для массива
+allot :: Command
+allot (I n : Array arr : xs) = Right (Array (replicate n (I 0)) : xs)
+allot _ = Left "Error: ALLOT requires an array"
+
+
+-- Запись в массив (store)
+store :: Command
+store (I val : I index : Array arr : xs) = 
+    if index < length arr
+        then Right (Array (take index arr ++ [I val] ++ drop (index + 1) arr) : xs)
+        else Left "Error: Index out of bounds"
+store _ = Left "Error: Invalid arguments for store"
+
+-- Чтение из массива (fetch)
+fetch :: Command
+fetch (I index : Array arr : xs) = 
+    if index < length arr
+        then Right (arr !! index : xs)
+        else Left "Error: Index out of bounds"
+fetch _ = Left "Error: Invalid arguments for fetch"
+
+-- Пример операции с массивом: +! (сложение и запись)
+plusStore :: Command
+plusStore (I val : I index : Array arr : xs) = 
+    if index < length arr
+        then let (I oldVal) = arr !! index
+             in Right (Array (take index arr ++ [I (oldVal + val)] ++ drop (index + 1) arr) : xs)
+        else Left "Error: Index out of bounds"
+plusStore _ = Left "Error: Invalid arguments for +!"
+
+
 -- Операции сравнения
---------------------------------------------------------------------------------
+
 gt, lt, eq :: Command
 gt (x:y:xs) = Right (boolToValue (y > x) : xs)
 gt _ = Left "Error: Not enough elements on stack for comparison (>)"
@@ -134,9 +180,9 @@ lt _ = Left "Error: Not enough elements on stack for comparison (<)"
 eq (x:y:xs) = Right (boolToValue (y == x) : xs)
 eq _ = Left "Error: Not enough elements on stack for comparison (==)"
 
---------------------------------------------------------------------------------
+
 -- Логические операции
---------------------------------------------------------------------------------
+
 andOp, orOp, invert :: Command
 andOp (x:y:xs) = Right (boolToValue (toBool x && toBool y) : xs)
 andOp _ = Left "Error: Not enough elements on stack for AND"
@@ -147,9 +193,7 @@ orOp _ = Left "Error: Not enough elements on stack for OR"
 invert (x:xs) = Right (boolToValue (not (toBool x)) : xs)
 invert _ = Left "Error: Stack underflow for INVERT"
 
---------------------------------------------------------------------------------
 -- Операции над стеком
---------------------------------------------------------------------------------
 dup, swap, drop', over, rot :: Command
 dup (x:xs) = Right (x:x:xs)
 dup _ = Left "Error: Stack underflow for duplication"
@@ -166,9 +210,7 @@ over _ = Left "Error: Not enough elements on stack for OVER"
 rot (x:y:z:xs) = Right (z:x:y:xs)
 rot _ = Left "Error: Not enough elements on stack for ROT"
 
---------------------------------------------------------------------------------
 -- Конвертация между Int и Float
---------------------------------------------------------------------------------
 sToF :: Command
 sToF (I n:xs) = Right (F (fromIntegral n) : xs)
 sToF (F _:xs) = Right (xs)
@@ -179,9 +221,7 @@ fToS (F f:xs) = Right (I (floor f) : xs)
 fToS (I _:xs) = Right (xs)
 fToS _ = Left "Error: Stack underflow for F>S"
 
---------------------------------------------------------------------------------
 -- Вспомогательные функции
---------------------------------------------------------------------------------
 op :: (Float -> Float -> Float) -> Value -> Value -> Value
 op f (I x) (I y) = I (floor (f (fromIntegral y) (fromIntegral x)))
 op f a b = F (f (toFloat a) (toFloat b))
@@ -199,9 +239,7 @@ boolToValue :: Bool -> Value
 boolToValue True = I (-1)
 boolToValue False = I 0
 
---------------------------------------------------------------------------------
 -- Ввод/вывод
---------------------------------------------------------------------------------
 dot :: Command
 dot (x:xs) = do
     liftIOtoEither (print x)

@@ -8,6 +8,8 @@ import Data.Char (isDigit)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.List (isPrefixOf)
+import Colon.Core (Command(..), create, cells, allot, push)
+
 
 -- Проверка, является ли строка числом (включая отрицательные и с плавающей точкой)
 isNumber :: String -> Bool
@@ -21,13 +23,23 @@ isNumber xs = case span isDigit xs of
 -- Парсинг команды
 parseCommand :: String -> Map String Command -> Either String Command
 parseCommand word dict
-    | ".\"" `isPrefixOf` word = Right (parseStringLiteral (drop 2 word))  -- Обработка строки после ."
-    | word == "\"" = Left "Error: Missing ending quote for string"  -- Ошибка, если нет конца строки
+    | "CREATE" `isPrefixOf` word = Right (parseCreateCommand word dict)
+    | word == "CELLS" = Right cells
+    | word == "ALLOT" = Right allot
     | otherwise = case Map.lookup word dict of
         Just cmd -> Right cmd
         Nothing -> if isNumber word
-            then Right $ push (parseNumber word)  -- Используем функцию для парсинга числа
+            then Right $ push (parseNumber word)  -- Если число, то просто кладем его на стек
             else Left $ "Unknown word: " ++ word
+
+-- Обработка CREATE
+parseCreateCommand :: String -> Map String Command -> Command
+parseCreateCommand word dict = 
+    let parts = words word
+        name = head parts
+        size = read (parts !! 1) :: Int
+    in create name size
+
 
 -- Функция для преобразования строки в число (Int или Float)
 parseNumber :: String -> Value

@@ -4,6 +4,7 @@ import Colon.Core
 import Colon.Parser
 import Colon.Interpreter
 import Colon.Utils (ifElse)
+import System.Console.Haskeline  -- Для REPL с поддержкой ввода
 import Data.Map (Map)
 import qualified Data.Map as Map
 import System.IO (hFlush, stdout)
@@ -29,28 +30,13 @@ initialDictionary = Map.fromList
     , ("and", andOp)
     , ("or", orOp)
     , ("invert", invert)
-    , (".", dot)  -- Поглощение и вывод вершины стека
-    , ("CR", cr)  -- Перевод строки
-    , ("EMIT", emit)  -- Вывод символа
-    , ("KEY", key)  -- Ввод символа
+    , (".", dot)
+    , ("CR", cr)
+    , ("EMIT", emit)
+    , ("KEY", key)
     ]
 
--- Основной цикл REPL
-repl :: Dictionary -> IO ()
-repl dict = do
-    putStr "Colon> "
-    hFlush stdout
-    input <- getLine
-    if input == "exit"
-        then putStrLn "Goodbye!"
-        else do
-            case parseAndExecute input dict of
-                Left err -> putStrLn ("Error: " ++ err) >> repl dict
-                Right (newStack, newDict) -> do
-                    putStrLn ("Result: " ++ show newStack)
-                    repl newDict
-
-
+-- Функция для удаления комментариев
 removeComments :: String -> String
 removeComments input = go 0 input
   where
@@ -62,15 +48,29 @@ removeComments input = go 0 input
     go depth (x:xs) | depth == 0 = x : go depth xs -- Сохранение символа вне комментариев
     go depth (_:xs) = go depth xs              -- Игнорирование содержимого комментария
 
+-- Основной цикл REPL с использованием haskeline
+repl :: Dictionary -> InputT IO ()
+repl dict = do
+    outputStrLn "Colon> "
+    input <- getInputLine ""  -- Чтение строки с поддержкой истории и автозаполнения
+    case input of
+        Nothing -> return ()  -- Пользователь нажал Ctrl+D (выход)
+        Just "exit" -> outputStrLn "Goodbye!"  -- Выход из программы
+        Just command -> do
+            let cleanedInput = removeComments command  -- Удаление комментариев
+            case parseAndExecute cleanedInput dict of
+                Left err -> outputStrLn ("Error: " ++ err) >> repl dict
+                Right (newStack, newDict) -> do
+                    outputStrLn ("Result: " ++ show newStack)
+                    repl newDict
 
--- Обработка строки: парсинг, выполнение и обновление словаря
+-- Парсинг и выполнение команды
 parseAndExecute :: String -> Dictionary -> Either String (Stack, Dictionary)
 parseAndExecute input dict =
     let cleanedInput = removeComments input  -- Удаление комментариев
     in if ":" `elem` words cleanedInput
         then defineNewWord cleanedInput dict
         else executeProgram cleanedInput dict
-
 
 -- Определение нового слова
 defineNewWord :: String -> Dictionary -> Either String (Stack, Dictionary)
@@ -104,4 +104,4 @@ main :: IO ()
 main = do
     putStrLn "Welcome to Colon Language REPL!"
     putStrLn "Type 'exit' to quit."
-    repl initialDictionary
+    runInputT defaultSettings (repl initialDictionary)
