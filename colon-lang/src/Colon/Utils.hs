@@ -4,12 +4,14 @@ module Colon.Utils (
     doLoop
 ) where
 
-import Colon.Core
+import Colon.Core (Stack, Command, Value(..))
 
 -- Пример условия: проверка положительности вершины стека
 condition :: Stack -> Bool
-condition (x:_) = x > 0
+condition (I x : _) = x > 0
+condition (F x : _) = x > 0
 condition _ = False
+
 
 -- Условный оператор
 ifElse :: (Stack -> Bool) -> Command -> Command -> Command

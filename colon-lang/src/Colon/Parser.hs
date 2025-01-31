@@ -9,10 +9,14 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.List (isPrefixOf)
 
--- Проверка, является ли строка числом (включая отрицательные)
+-- Проверка, является ли строка числом (включая отрицательные и с плавающей точкой)
 isNumber :: String -> Bool
-isNumber ('-':xs) = all isDigit xs
-isNumber xs = all isDigit xs
+isNumber ('-':xs) = isNumber xs  -- Обработка отрицательных чисел
+isNumber xs = case span isDigit xs of
+    ("", "") -> False  -- Если нет цифр до точки
+    (_, rest) -> case rest of
+        '.' : ys -> all isDigit ys  -- Число с плавающей точкой
+        _ -> null rest  -- Если не остаток от точки, то целое число
 
 -- Парсинг команды
 parseCommand :: String -> Map String Command -> Either String Command
@@ -22,8 +26,14 @@ parseCommand word dict
     | otherwise = case Map.lookup word dict of
         Just cmd -> Right cmd
         Nothing -> if isNumber word
-            then Right $ push (read word)
+            then Right $ push (parseNumber word)  -- Используем функцию для парсинга числа
             else Left $ "Unknown word: " ++ word
+
+-- Функция для преобразования строки в число (Int или Float)
+parseNumber :: String -> Value
+parseNumber word
+    | '.' `elem` word = F (read word)  -- Если есть точка, это число с плавающей точкой
+    | otherwise = I (read word)  -- Иначе целое число
 
 -- Парсинг строки для вывода
 parseStringLiteral :: String -> Command

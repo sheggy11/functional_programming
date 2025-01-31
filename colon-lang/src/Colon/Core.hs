@@ -25,7 +25,10 @@ module Colon.Core (
     emit,
     key,
     liftIOtoEither,
-    printStringLiteral
+    printStringLiteral,
+    sToF,
+    fToS,
+    Value(..)
 ) where
 
 import System.IO (hFlush, stdout)
@@ -33,144 +36,191 @@ import Control.Monad.IO.Class (liftIO)
 import System.IO.Unsafe (unsafePerformIO)  
 import Control.Exception (SomeException, catch)  
 
-type Stack = [Int]
+-- Определяем новый тип Value для поддержки Int и Float
+data Value = I Int | F Float
+    deriving (Show, Eq, Read)  -- Добавлен Read
+
+instance Num Value where
+    (I x) + (I y) = I (x + y)
+    (F x) + (F y) = F (x + y)
+    (I x) + (F y) = F (fromIntegral x + y)
+    (F x) + (I y) = F (x + fromIntegral y)
+
+    (I x) * (I y) = I (x * y)
+    (F x) * (F y) = F (x * y)
+    (I x) * (F y) = F (fromIntegral x * y)
+    (F x) * (I y) = F (x * fromIntegral y)
+
+    abs (I x) = I (abs x)
+    abs (F x) = F (abs x)
+
+    signum (I x) = I (signum x)
+    signum (F x) = F (signum x)
+
+    fromInteger x = I (fromInteger x)  -- Позволяет писать `0`, `1`, `2` в коде
+
+    negate (I x) = I (negate x)
+    negate (F x) = F (negate x)
+
+instance Ord Value where
+    (I x) `compare` (I y) = x `compare` y
+    (F x) `compare` (F y) = x `compare` y
+    (I x) `compare` (F y) = (fromIntegral x) `compare` y
+    (F x) `compare` (I y) = x `compare` (fromIntegral y)
+
+
+type Stack = [Value]
 type ColonResult = Either String Stack
 type Command = Stack -> ColonResult
 
+--------------------------------------------------------------------------------
 -- Функция для выполнения IO в контексте Either String
+--------------------------------------------------------------------------------
 liftIOtoEither :: IO a -> Either String a
 liftIOtoEither action = unsafePerformIO (fmap Right action `catch` handler)
   where
     handler :: SomeException -> IO (Either String a)
     handler _ = return (Left "Error in IO action")
--- Добавить значение в стек
-push :: Int -> Command
+
+--------------------------------------------------------------------------------
+-- Операции над стеком
+--------------------------------------------------------------------------------
+push :: Value -> Command
 push x stack = Right (x : stack)
 
--- Удалить верхний элемент из стека
 pop :: Command
 pop [] = Left "Error: Stack underflow"
 pop (_ : xs) = Right xs
 
--- Печать строки (с кавычками)
 printStringLiteral :: String -> Command
 printStringLiteral str stack = do
-    liftIOtoEither (putStrLn str)  -- Вывод строки
+    liftIOtoEither (putStrLn str)
     return stack
 
--- Сложение
-add :: Command
-add (x:y:xs) = Right ((x + y) : xs)
+--------------------------------------------------------------------------------
+-- Арифметические операции (работают с I и F)
+--------------------------------------------------------------------------------
+add, sub, mul, div' :: Command
+add (x:y:xs) = Right (op (+) x y : xs)
 add _ = Left "Error: Not enough elements on stack for addition"
 
--- Вычитание
-sub :: Command
-sub (x:y:xs) = Right ((y - x) : xs)
+sub (x:y:xs) = Right (op (-) y x : xs)
 sub _ = Left "Error: Not enough elements on stack for subtraction"
 
--- Умножение
-mul :: Command
-mul (x:y:xs) = Right ((x * y) : xs)
+mul (x:y:xs) = Right (op (*) x y : xs)
 mul _ = Left "Error: Not enough elements on stack for multiplication"
 
--- Деление
-div' :: Command
 div' (x:y:xs)
-    | x == 0    = Left "Error: Division by zero"
-    | otherwise = Right ((y `div` x) : xs)
+    | toFloat x == 0 = Left "Error: Division by zero"
+    | otherwise = Right (op (/) y x : xs)
 div' _ = Left "Error: Not enough elements on stack for division"
 
--- Остаток от деления (MOD)
 mod' :: Command
-mod' (x:y:xs)
+mod' (I x:I y:xs)
     | x == 0    = Left "Error: Division by zero in MOD"
-    | otherwise = Right ((y `mod` x) : xs)
-mod' _ = Left "Error: Not enough elements on stack for MOD"
+    | otherwise = Right (I (y `mod` x) : xs)
+mod' _ = Left "Error: MOD only works with integers"
 
--- Дублирование
-dup :: Command
-dup (x:xs) = Right (x : x : xs)
-dup _ = Left "Error: Stack underflow for duplication"
-
--- Обмен двух верхних элементов
-swap :: Command
-swap (x:y:xs) = Right (y : x : xs)
-swap _ = Left "Error: Not enough elements on stack for swap"
-
--- DROP: удалить верхний элемент
-drop' :: Command
-drop' [] = Left "Error: Stack underflow for DROP"
-drop' (_ : xs) = Right xs
-
--- OVER: дублировать предпоследний элемент на вершине
-over :: Command
-over (x:y:xs) = Right (y : x : y : xs)
-over _ = Left "Error: Not enough elements on stack for OVER"
-
--- ROT: сдвинуть третий элемент наверх
-rot :: Command
-rot (x:y:z:xs) = Right (z : x : y : xs)
-rot _ = Left "Error: Not enough elements on stack for ROT"
-
--- Больше
-gt :: Command
-gt (x:y:xs) = Right ((if y > x then -1 else 0) : xs)
+--------------------------------------------------------------------------------
+-- Операции сравнения
+--------------------------------------------------------------------------------
+gt, lt, eq :: Command
+gt (x:y:xs) = Right (boolToValue (y > x) : xs)
 gt _ = Left "Error: Not enough elements on stack for comparison (>)"
 
--- Меньше
-lt :: Command
-lt (x:y:xs) = Right ((if y < x then -1 else 0) : xs)
+lt (x:y:xs) = Right (boolToValue (y < x) : xs)
 lt _ = Left "Error: Not enough elements on stack for comparison (<)"
 
--- Равно
-eq :: Command
-eq (x:y:xs) = Right ((if y == x then -1 else 0) : xs)
+eq (x:y:xs) = Right (boolToValue (y == x) : xs)
 eq _ = Left "Error: Not enough elements on stack for comparison (==)"
 
--- Логическое И (AND)
-andOp :: Command
-andOp (x:y:xs) = Right ((if (y /= 0) && (x /= 0) then -1 else 0) : xs) -- -1 represents True
+--------------------------------------------------------------------------------
+-- Логические операции
+--------------------------------------------------------------------------------
+andOp, orOp, invert :: Command
+andOp (x:y:xs) = Right (boolToValue (toBool x && toBool y) : xs)
 andOp _ = Left "Error: Not enough elements on stack for AND"
 
--- Логическое ИЛИ (OR)
-orOp :: Command
-orOp (x:y:xs) = Right ((if (y /= 0) || (x /= 0) then -1 else 0) : xs) -- -1 represents True
+orOp (x:y:xs) = Right (boolToValue (toBool x || toBool y) : xs)
 orOp _ = Left "Error: Not enough elements on stack for OR"
 
--- Инвертирование (INVERT)
-invert :: Command
-invert (x:xs) = Right ((if x == 0 then -1 else 0) : xs) -- -1 represents True, 0 represents False
+invert (x:xs) = Right (boolToValue (not (toBool x)) : xs)
 invert _ = Left "Error: Stack underflow for INVERT"
 
+--------------------------------------------------------------------------------
+-- Операции над стеком
+--------------------------------------------------------------------------------
+dup, swap, drop', over, rot :: Command
+dup (x:xs) = Right (x:x:xs)
+dup _ = Left "Error: Stack underflow for duplication"
 
--- Поглощение вершины стека и вывод её
+swap (x:y:xs) = Right (y:x:xs)
+swap _ = Left "Error: Not enough elements on stack for swap"
+
+drop' [] = Left "Error: Stack underflow for DROP"
+drop' (_:xs) = Right xs
+
+over (x:y:xs) = Right (y:x:y:xs)
+over _ = Left "Error: Not enough elements on stack for OVER"
+
+rot (x:y:z:xs) = Right (z:x:y:xs)
+rot _ = Left "Error: Not enough elements on stack for ROT"
+
+--------------------------------------------------------------------------------
+-- Конвертация между Int и Float
+--------------------------------------------------------------------------------
+sToF :: Command
+sToF (I n:xs) = Right (F (fromIntegral n) : xs)
+sToF (F _:xs) = Right (xs)
+sToF _ = Left "Error: Stack underflow for S>F"
+
+fToS :: Command
+fToS (F f:xs) = Right (I (floor f) : xs)
+fToS (I _:xs) = Right (xs)
+fToS _ = Left "Error: Stack underflow for F>S"
+
+--------------------------------------------------------------------------------
+-- Вспомогательные функции
+--------------------------------------------------------------------------------
+op :: (Float -> Float -> Float) -> Value -> Value -> Value
+op f (I x) (I y) = I (floor (f (fromIntegral y) (fromIntegral x)))
+op f a b = F (f (toFloat a) (toFloat b))
+
+toFloat :: Value -> Float
+toFloat (I n) = fromIntegral n
+toFloat (F d) = d
+
+toBool :: Value -> Bool
+toBool (I 0) = False
+toBool (I _) = True
+toBool (F f) = f /= 0.0
+
+boolToValue :: Bool -> Value
+boolToValue True = I (-1)
+boolToValue False = I 0
+
+--------------------------------------------------------------------------------
+-- Ввод/вывод
+--------------------------------------------------------------------------------
 dot :: Command
 dot (x:xs) = do
-    liftIOtoEither (putStrLn (show x))  -- Используем liftIOtoEither для выполнения IO
+    liftIOtoEither (print x)
     return xs
 dot _ = Left "Error: Not enough elements on stack for ."
 
--- Перевод строки
 cr :: Command
 cr stack = do
-    liftIOtoEither (putStrLn "")  -- Печать новой строки
+    liftIOtoEither (putStrLn "")
     return stack
 
--- Вывод символа (по ASCII коду)
 emit :: Command
-emit (x:xs) = do
-    liftIOtoEither (putChar (toEnum x :: Char))  -- Печать символа
-    liftIOtoEither (hFlush stdout)  -- Принудительный сброс буфера для немедленного вывода
+emit (I x:xs) = do
+    liftIOtoEither (putChar (toEnum x :: Char))
+    liftIOtoEither (hFlush stdout)
     return xs
 emit _ = Left "Error: Not enough elements on stack for EMIT"
 
--- Ввод кода символа с клавиатуры
 key :: Command
 key stack = do
-    c <- liftIOtoEither getChar  -- Чтение символа с клавиатуры
-    return (fromEnum c : stack)  -- Положить ASCII код символа на стек
-
-
-
-
-
+    c <- liftIOtoEither getChar
+    return (I (fromEnum c) : stack)
